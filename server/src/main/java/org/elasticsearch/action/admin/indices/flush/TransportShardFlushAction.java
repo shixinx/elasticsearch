@@ -32,6 +32,7 @@ import org.elasticsearch.transport.TransportService;
 
 import java.io.IOException;
 
+//note flush方法
 public class TransportShardFlushAction extends TransportReplicationAction<ShardFlushRequest, ShardFlushRequest, ReplicationResponse> {
 
     public static final String NAME = FlushAction.NAME + "[s]";
@@ -86,6 +87,7 @@ public class TransportShardFlushAction extends TransportReplicationAction<ShardF
         });
     }
 
+    //note 副本分片执行flush方法
     @Override
     protected void shardOperationOnReplica(ShardFlushRequest request, IndexShard replica, ActionListener<ReplicaResult> listener) {
         ActionListener.completeWith(listener, () -> {

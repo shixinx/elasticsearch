@@ -83,6 +83,7 @@ import static org.elasticsearch.index.seqno.SequenceNumbers.UNASSIGNED_SEQ_NO;
 /**
  * Groups bulk request items by shard, optionally creating non-existent indices and
  * delegates to {@link TransportShardBulkAction} for shard-level bulk execution
+ * Note TransportShardBulkAction 是分片级别的批量执行
  */
 public class TransportBulkAction extends HandledTransportAction<BulkRequest, BulkResponse> {
 
@@ -276,10 +277,14 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
             executeBulk(task, bulkRequest, startTime, listener, executorName, responses, indicesThatCannotBeCreated);
         } else {
             final AtomicInteger counter = new AtomicInteger(autoCreateIndices.size());
+            //note 遍历所有需要创建的索引
             for (String index : autoCreateIndices) {
+                //note 发送创建索引的请求
                 createIndex(index, bulkRequest.timeout(), minNodeVersion, new ActionListener<>() {
+                    //执行成功响应
                     @Override
                     public void onResponse(CreateIndexResponse result) {
+                        //将计数器递减，计数器的值为需要创建的索引数量
                         if (counter.decrementAndGet() == 0) {
                             threadPool.executor(executorName).execute(new ActionRunnable<>(listener) {
                                 @Override
@@ -487,9 +492,11 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
             this.observer = new ClusterStateObserver(clusterService, bulkRequest.timeout(), logger, threadPool.getThreadContext());
         }
 
+        //note 对于请求的预处理，参数渐渐、自动生id、处理routing、检查集群状态等
         @Override
         protected void doRun() {
             assert bulkRequest != null;
+            //note 检查集群状态，协调节点在开始处理的时候检测集群状态，若集群异常，则取消写入。
             final ClusterState clusterState = observer.setAndGetObservedState();
             if (handleBlockExceptions(clusterState)) {
                 return;
@@ -497,6 +504,7 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
             final ConcreteIndices concreteIndices = new ConcreteIndices(clusterState, indexNameExpressionResolver);
             Metadata metadata = clusterState.metadata();
             // Group the requests by ShardId -> Operations mapping
+            // note 将用户的bulkRequest重新组织为基于shard的请求列表。
             Map<ShardId, List<BulkItemRequest>> requestsByShard = new HashMap<>();
 
             for (int i = 0; i < bulkRequest.requests.size(); i++) {
@@ -538,6 +546,7 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
                     if (addFailureIfIndexIsClosed(docWriteRequest, concreteIndex, i, metadata)) {
                         continue;
                     }
+                    //note 将请求分配到对应的shard上，并加入到shardRequests中
                     IndexRouting indexRouting = concreteIndices.routing(concreteIndex);
                     int shardId = docWriteRequest.route(indexRouting);
                     List<BulkItemRequest> shardRequests = requestsByShard.computeIfAbsent(
@@ -563,6 +572,7 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
             }
 
             final AtomicInteger counter = new AtomicInteger(requestsByShard.size());
+            //note 获取当前节点id
             String nodeId = clusterService.localNode().getId();
             for (Map.Entry<ShardId, List<BulkItemRequest>> entry : requestsByShard.entrySet()) {
                 final ShardId shardId = entry.getKey();
@@ -578,6 +588,7 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
                 if (task != null) {
                     bulkShardRequest.setParentTask(nodeId, task.getId());
                 }
+                //note 开始执行Bulk操作
                 client.executeLocally(TransportShardBulkAction.TYPE, bulkShardRequest, new ActionListener<>() {
                     @Override
                     public void onResponse(BulkShardResponse bulkShardResponse) {
